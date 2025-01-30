@@ -1,6 +1,7 @@
-#  resize works
+# settings menu works but simple
 
 import tkinter as tk
+from tkinter import ttk, colorchooser
 import psutil
 from datetime import datetime
 import pynvml
@@ -18,6 +19,72 @@ DEFAULT_CONFIG = {
     'show_gpu': True,
     'show_timestamp': True
 }
+
+class SettingsWindow:
+    def __init__(self, parent, config, apply_callback):
+        self.parent = parent
+        self.config = config
+        self.apply_callback = apply_callback
+
+        self.window = tk.Toplevel(parent)
+        self.window.title("Settings")
+        self.window.geometry("300x300")
+        self.window.transient(parent)  # Make the window modal relative to the parent
+
+        # Font Size
+        ttk.Label(self.window, text="Font Size:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        self.font_size_var = tk.IntVar(value=self.config['font_size'])
+        ttk.Spinbox(self.window, from_=8, to=24, textvariable=self.font_size_var).grid(row=0, column=1, padx=10, pady=5)
+
+        # Text Color
+        ttk.Label(self.window, text="Text Color:").grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        self.text_color_var = tk.StringVar(value=self.config['text_color'])
+        ttk.Button(self.window, text="Choose", command=self.choose_text_color).grid(row=1, column=1, padx=10, pady=5)
+
+        # Background Color
+        ttk.Label(self.window, text="Background Color:").grid(row=2, column=0, padx=10, pady=5, sticky="w")
+        self.background_color_var = tk.StringVar(value=self.config['background_color'])
+        ttk.Button(self.window, text="Choose", command=self.choose_background_color).grid(row=2, column=1, padx=10, pady=5)
+
+        # Metrics to Display
+        ttk.Label(self.window, text="Display Metrics:").grid(row=3, column=0, padx=10, pady=5, sticky="w")
+        self.show_cpu_var = tk.BooleanVar(value=self.config['show_cpu'])
+        ttk.Checkbutton(self.window, text="CPU", variable=self.show_cpu_var).grid(row=4, column=0, padx=10, pady=5, sticky="w")
+        self.show_memory_var = tk.BooleanVar(value=self.config['show_memory'])
+        ttk.Checkbutton(self.window, text="Memory", variable=self.show_memory_var).grid(row=5, column=0, padx=10, pady=5, sticky="w")
+        self.show_gpu_var = tk.BooleanVar(value=self.config['show_gpu'])
+        ttk.Checkbutton(self.window, text="GPU", variable=self.show_gpu_var).grid(row=6, column=0, padx=10, pady=5, sticky="w")
+        self.show_timestamp_var = tk.BooleanVar(value=self.config['show_timestamp'])
+        ttk.Checkbutton(self.window, text="Timestamp", variable=self.show_timestamp_var).grid(row=7, column=0, padx=10, pady=5, sticky="w")
+
+        # Apply Button
+        ttk.Button(self.window, text="Apply", command=self.apply_settings).grid(row=8, column=0, columnspan=2, pady=10)
+
+    def choose_text_color(self):
+        color = colorchooser.askcolor(title="Choose Text Color")[1]
+        if color:
+            self.text_color_var.set(color)
+
+    def choose_background_color(self):
+        color = colorchooser.askcolor(title="Choose Background Color")[1]
+        if color:
+            self.background_color_var.set(color)
+
+    def apply_settings(self):
+        # Update the config with the new settings
+        self.config['font_size'] = self.font_size_var.get()
+        self.config['text_color'] = self.text_color_var.get()
+        self.config['background_color'] = self.background_color_var.get()
+        self.config['show_cpu'] = self.show_cpu_var.get()
+        self.config['show_memory'] = self.show_memory_var.get()
+        self.config['show_gpu'] = self.show_gpu_var.get()
+        self.config['show_timestamp'] = self.show_timestamp_var.get()
+
+        # Call the callback to apply the changes
+        self.apply_callback()
+
+        # Close the settings window
+        self.window.destroy()
 
 class SystemOverlay:
     def __init__(self, root):
@@ -180,8 +247,14 @@ class SystemOverlay:
         menu.post(event.x_root, event.y_root)
 
     def show_settings(self):
-        # Placeholder for settings functionality
-        print("Settings menu clicked")
+        # Open the settings window
+        SettingsWindow(self.root, self._config, self.apply_settings)
+
+    def apply_settings(self):
+        # Apply the updated configuration
+        self.label.config(font=("Arial", self._config['font_size']), fg=self._config['text_color'], bg=self._config['background_color'])
+        self.root.configure(bg=self._config['background_color'])
+        self.update_system_info()
 
     def change_mode(self):
         # Placeholder for mode-changing functionality
