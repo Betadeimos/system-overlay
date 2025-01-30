@@ -1,4 +1,4 @@
-# works fine but simple
+# deep resize doesnt work
 
 import tkinter as tk
 import psutil
@@ -45,6 +45,84 @@ class SystemOverlay:
         self.root.bind('<Button-1>', self.start_drag)
         self.root.bind('<B1-Motion>', self.do_drag)
         self.root.bind('<Button-3>', self.show_context_menu)
+
+        # Resize handles
+        self.resize_handles = []
+        self.create_resize_handles()
+
+    def create_resize_handles(self):
+        handle_size = 10
+        # Bottom-right handle
+        self.handle_br = tk.Frame(self.root, width=handle_size, height=handle_size, bg='gray')
+        self.handle_br.place(relx=1.0, rely=1.0, anchor='se')
+        self.handle_br.bind('<Button-1>', self.start_resize_br)
+        self.handle_br.bind('<B1-Motion>', self.do_resize_br)
+
+        # Bottom-left handle
+        self.handle_bl = tk.Frame(self.root, width=handle_size, height=handle_size, bg='gray')
+        self.handle_bl.place(relx=0.0, rely=1.0, anchor='sw')
+        self.handle_bl.bind('<Button-1>', self.start_resize_bl)
+        self.handle_bl.bind('<B1-Motion>', self.do_resize_bl)
+
+        # Top-right handle
+        self.handle_tr = tk.Frame(self.root, width=handle_size, height=handle_size, bg='gray')
+        self.handle_tr.place(relx=1.0, rely=0.0, anchor='ne')
+        self.handle_tr.bind('<Button-1>', self.start_resize_tr)
+        self.handle_tr.bind('<B1-Motion>', self.do_resize_tr)
+
+        # Top-left handle
+        self.handle_tl = tk.Frame(self.root, width=handle_size, height=handle_size, bg='gray')
+        self.handle_tl.place(relx=0.0, rely=0.0, anchor='nw')
+        self.handle_tl.bind('<Button-1>', self.start_resize_tl)
+        self.handle_tl.bind('<B1-Motion>', self.do_resize_tl)
+
+    def start_resize_br(self, event):
+        self._resize_start_x = event.x_root
+        self._resize_start_y = event.y_root
+        self._resize_start_width = self.root.winfo_width()
+        self._resize_start_height = self.root.winfo_height()
+
+    def do_resize_br(self, event):
+        new_width = self._resize_start_width + (event.x_root - self._resize_start_x)
+        new_height = self._resize_start_height + (event.y_root - self._resize_start_y)
+        self.root.geometry(f"{new_width}x{new_height}")
+
+    def start_resize_bl(self, event):
+        self._resize_start_x = event.x_root
+        self._resize_start_y = event.y_root
+        self._resize_start_width = self.root.winfo_width()
+        self._resize_start_height = self.root.winfo_height()
+
+    def do_resize_bl(self, event):
+        new_width = self._resize_start_width - (event.x_root - self._resize_start_x)
+        new_height = self._resize_start_height + (event.y_root - self._resize_start_y)
+        x = self.root.winfo_x() + (event.x_root - self._resize_start_x)
+        self.root.geometry(f"{new_width}x{new_height}+{x}+{self.root.winfo_y()}")
+
+    def start_resize_tr(self, event):
+        self._resize_start_x = event.x_root
+        self._resize_start_y = event.y_root
+        self._resize_start_width = self.root.winfo_width()
+        self._resize_start_height = self.root.winfo_height()
+
+    def do_resize_tr(self, event):
+        new_width = self._resize_start_width + (event.x_root - self._resize_start_x)
+        new_height = self._resize_start_height - (event.y_root - self._resize_start_y)
+        y = self.root.winfo_y() + (event.y_root - self._resize_start_y)
+        self.root.geometry(f"{new_width}x{new_height}+{self.root.winfo_x()}+{y}")
+
+    def start_resize_tl(self, event):
+        self._resize_start_x = event.x_root
+        self._resize_start_y = event.y_root
+        self._resize_start_width = self.root.winfo_width()
+        self._resize_start_height = self.root.winfo_height()
+
+    def do_resize_tl(self, event):
+        new_width = self._resize_start_width - (event.x_root - self._resize_start_x)
+        new_height = self._resize_start_height - (event.y_root - self._resize_start_y)
+        x = self.root.winfo_x() + (event.x_root - self._resize_start_x)
+        y = self.root.winfo_y() + (event.y_root - self._resize_start_y)
+        self.root.geometry(f"{new_width}x{new_height}+{x}+{y}")
 
     def setup_gpu(self):
         try:
