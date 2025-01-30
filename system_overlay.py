@@ -1,4 +1,4 @@
-# dynmic resized works
+# dynmic resized works but settings are broken
 
 import tkinter as tk
 from tkinter import ttk, colorchooser
@@ -11,16 +11,16 @@ DEFAULT_CONFIG = {
     'base_font_size': 18,
     'text_color': 'white',
     'background_color': 'black',
-    'window_width': 300,
-    'window_height': 180,
+    'window_width': 250,
+    'window_height': 160,
     'update_interval': 1000,
     'show_cpu': True,
     'show_memory': True,
     'show_gpu': True,
-    'show_timestamp': True,
-    'background_opacity': 0.4,  # Only affects background
-    'line_spacing': 1.4,
-    'margin': 10  # Minimal margin
+    'show_timestamp': False,
+    'background_opacity': 0.9,
+    'line_spacing': 1,
+    'margin': 1
 }
 
 class SettingsWindow:
@@ -81,26 +81,29 @@ class SystemOverlay:
 
     def setup_resize_handles(self):
         handle_size = 8
+        
+        handle_color = self._config['background_color']
+        
         # Bottom-right handle
-        self.handle_br = tk.Frame(self.root, width=handle_size, height=handle_size, bg='gray')
+        self.handle_br = tk.Frame(self.root, width=handle_size, height=handle_size, bg=handle_color, cursor='bottom_right_corner')
         self.handle_br.place(relx=1.0, rely=1.0, anchor='se')
         self.handle_br.bind('<Button-1>', self.start_resize_br)
         self.handle_br.bind('<B1-Motion>', self.do_resize_br)
 
         # Bottom-left handle
-        self.handle_bl = tk.Frame(self.root, width=handle_size, height=handle_size, bg='gray')
+        self.handle_bl = tk.Frame(self.root, width=handle_size, height=handle_size, bg=handle_color, cursor='bottom_left_corner')
         self.handle_bl.place(relx=0.0, rely=1.0, anchor='sw')
         self.handle_bl.bind('<Button-1>', self.start_resize_bl)
         self.handle_bl.bind('<B1-Motion>', self.do_resize_bl)
 
         # Top-right handle
-        self.handle_tr = tk.Frame(self.root, width=handle_size, height=handle_size, bg='gray')
+        self.handle_tr = tk.Frame(self.root, width=handle_size, height=handle_size, bg=handle_color, cursor='top_right_corner')
         self.handle_tr.place(relx=1.0, rely=0.0, anchor='ne')
         self.handle_tr.bind('<Button-1>', self.start_resize_tr)
         self.handle_tr.bind('<B1-Motion>', self.do_resize_tr)
 
         # Top-left handle
-        self.handle_tl = tk.Frame(self.root, width=handle_size, height=handle_size, bg='gray')
+        self.handle_tl = tk.Frame(self.root, width=handle_size, height=handle_size, bg=handle_color, cursor='top_left_corner')
         self.handle_tl.place(relx=0.0, rely=0.0, anchor='nw')
         self.handle_tl.bind('<Button-1>', self.start_resize_tl)
         self.handle_tl.bind('<B1-Motion>', self.do_resize_tl)
@@ -112,8 +115,8 @@ class SystemOverlay:
         
         # Calculate font size based on window area
         area = width * height
-        scale_factor = (area / (300 * 200)) ** 0.5  # Square root scaling
-        return max(8, min(24, int(base_size * scale_factor)))
+        scale_factor = (area / (250 * 160)) ** 0.5  # Square root scaling
+        return int(base_size * scale_factor)
 
     def update_font_size(self):
         font_size = self.calculate_font_size()
@@ -135,9 +138,9 @@ class SystemOverlay:
             gpu_usage = utilization.gpu
             temp = pynvml.nvmlDeviceGetTemperature(self.gpu_handle, pynvml.NVML_TEMPERATURE_GPU)
             mem_info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
-            used_mem = mem_info.used / 1024**2
-            total_mem = mem_info.total / 1024**2
-            return f"GPU Usage: {gpu_usage}%\nGPU Temp: {temp}°C\nVRAM: {used_mem:.1f}/{total_mem:.1f} MB"
+            used_mem = mem_info.used / 1024**3
+            total_mem = mem_info.total / 1024**3
+            return f"GPU Usage: {gpu_usage}%\nGPU Temp: {temp}°C\nVRAM: {used_mem:.1f}/{total_mem:.1f} GB"
         except:
             return "GPU: Error"
 
@@ -147,7 +150,7 @@ class SystemOverlay:
             info.append(f"CPU Usage: {psutil.cpu_percent()}%")
         if self._config['show_memory']:
             memory = psutil.virtual_memory()
-            info.append(f"Memory Usage: {memory.percent}%")
+            info.append(f"RAM Usage: {memory.percent}%")
         if self._config['show_gpu']:
             info.append(self.get_gpu_info())
         if self._config['show_timestamp']:
@@ -186,18 +189,23 @@ class SystemOverlay:
     def change_mode(self):
         print("Mode menu clicked")
 
-    # Resize handlers
     def start_resize_br(self, event):
         self._resize_data = {
             'x': event.x_root,
             'y': event.y_root,
             'width': self.root.winfo_width(),
-            'height': self.root.winfo_height()
+            'height': self.root.winfo_height(),
+            'aspect_ratio': self.root.winfo_width() / self.root.winfo_height()
         }
 
     def do_resize_br(self, event):
-        new_width = self._resize_data['width'] + (event.x_root - self._resize_data['x'])
-        new_height = self._resize_data['height'] + (event.y_root - self._resize_data['y'])
+        dx = event.x_root - self._resize_data['x']
+        dy = event.y_root - self._resize_data['y']
+        
+        # Calculate new dimensions maintaining aspect ratio
+        new_width = self._resize_data['width'] + dx
+        new_height = int(new_width / self._resize_data['aspect_ratio'])
+        
         self.root.geometry(f"{new_width}x{new_height}")
         self.update_font_size()
 
@@ -207,13 +215,19 @@ class SystemOverlay:
             'y': event.y_root,
             'width': self.root.winfo_width(),
             'height': self.root.winfo_height(),
-            'x_pos': self.root.winfo_x()
+            'x_pos': self.root.winfo_x(),
+            'aspect_ratio': self.root.winfo_width() / self.root.winfo_height()
         }
 
     def do_resize_bl(self, event):
-        new_width = self._resize_data['width'] - (event.x_root - self._resize_data['x'])
-        new_height = self._resize_data['height'] + (event.y_root - self._resize_data['y'])
-        x_pos = self._resize_data['x_pos'] + (event.x_root - self._resize_data['x'])
+        dx = event.x_root - self._resize_data['x']
+        dy = event.y_root - self._resize_data['y']
+        
+        # Calculate new dimensions maintaining aspect ratio
+        new_width = self._resize_data['width'] - dx
+        new_height = int(new_width / self._resize_data['aspect_ratio'])
+        x_pos = self._resize_data['x_pos'] + dx
+        
         self.root.geometry(f"{new_width}x{new_height}+{x_pos}+{self.root.winfo_y()}")
         self.update_font_size()
 
@@ -223,13 +237,19 @@ class SystemOverlay:
             'y': event.y_root,
             'width': self.root.winfo_width(),
             'height': self.root.winfo_height(),
-            'y_pos': self.root.winfo_y()
+            'y_pos': self.root.winfo_y(),
+            'aspect_ratio': self.root.winfo_width() / self.root.winfo_height()
         }
 
     def do_resize_tr(self, event):
-        new_width = self._resize_data['width'] + (event.x_root - self._resize_data['x'])
-        new_height = self._resize_data['height'] - (event.y_root - self._resize_data['y'])
-        y_pos = self._resize_data['y_pos'] + (event.y_root - self._resize_data['y'])
+        dx = event.x_root - self._resize_data['x']
+        dy = event.y_root - self._resize_data['y']
+        
+        # Calculate new dimensions maintaining aspect ratio
+        new_width = self._resize_data['width'] + dx
+        new_height = int(new_width / self._resize_data['aspect_ratio'])
+        y_pos = self._resize_data['y_pos'] + (self._resize_data['height'] - new_height)
+        
         self.root.geometry(f"{new_width}x{new_height}+{self.root.winfo_x()}+{y_pos}")
         self.update_font_size()
 
@@ -240,14 +260,20 @@ class SystemOverlay:
             'width': self.root.winfo_width(),
             'height': self.root.winfo_height(),
             'x_pos': self.root.winfo_x(),
-            'y_pos': self.root.winfo_y()
+            'y_pos': self.root.winfo_y(),
+            'aspect_ratio': self.root.winfo_width() / self.root.winfo_height()
         }
 
     def do_resize_tl(self, event):
-        new_width = self._resize_data['width'] - (event.x_root - self._resize_data['x'])
-        new_height = self._resize_data['height'] - (event.y_root - self._resize_data['y'])
-        x_pos = self._resize_data['x_pos'] + (event.x_root - self._resize_data['x'])
-        y_pos = self._resize_data['y_pos'] + (event.y_root - self._resize_data['y'])
+        dx = event.x_root - self._resize_data['x']
+        dy = event.y_root - self._resize_data['y']
+        
+        # Calculate new dimensions maintaining aspect ratio
+        new_width = self._resize_data['width'] - dx
+        new_height = int(new_width / self._resize_data['aspect_ratio'])
+        x_pos = self._resize_data['x_pos'] + dx
+        y_pos = self._resize_data['y_pos'] + (self._resize_data['height'] - new_height)
+        
         self.root.geometry(f"{new_width}x{new_height}+{x_pos}+{y_pos}")
         self.update_font_size()
 
