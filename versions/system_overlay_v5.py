@@ -1,3 +1,5 @@
+# taken away font size and still buggy but getting there
+
 import tkinter as tk
 from tkinter import ttk, colorchooser
 import psutil

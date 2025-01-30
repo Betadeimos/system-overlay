@@ -1,3 +1,5 @@
+# dynmic resized works but settings are broken
+
 import tkinter as tk
 from tkinter import ttk, colorchooser
 import psutil

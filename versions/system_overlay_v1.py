@@ -1,3 +1,5 @@
+# works fine but simple
+
 import tkinter as tk
 import psutil
 from datetime import datetime

@@ -1,3 +1,5 @@
+# deep resize doesnt work
+
 import tkinter as tk
 import psutil
 from datetime import datetime

@@ -1,3 +1,5 @@
+# settings menu works but simple
+
 import tkinter as tk
 from tkinter import ttk, colorchooser
 import psutil

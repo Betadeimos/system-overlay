@@ -1,3 +1,5 @@
+# simple working version no settings copy
+
 import tkinter as tk
 from tkinter import ttk
 import psutil

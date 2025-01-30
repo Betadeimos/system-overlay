@@ -1,3 +1,5 @@
+# added colors a bit buggy
+
 import tkinter as tk
 from tkinter import ttk
 import psutil
