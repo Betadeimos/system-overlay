@@ -1,7 +1,7 @@
-# dynmic resized works but settings are broken
+# simple working version no settings copy
 
 import tkinter as tk
-from tkinter import ttk, colorchooser
+from tkinter import ttk
 import psutil
 from datetime import datetime
 import pynvml
@@ -11,7 +11,7 @@ DEFAULT_CONFIG = {
     'base_font_size': 18,
     'text_color': 'white',
     'background_color': 'black',
-    'window_width': 250,
+    'window_width': 230,  
     'window_height': 160,
     'update_interval': 1000,
     'show_cpu': True,
@@ -22,13 +22,6 @@ DEFAULT_CONFIG = {
     'line_spacing': 1,
     'margin': 1
 }
-
-class SettingsWindow:
-    def __init__(self, parent, config, apply_callback):
-        self.window = tk.Toplevel(parent)
-        self.window.title("Settings")
-        # Add your settings UI elements here
-        ttk.Button(self.window, text="Apply", command=apply_callback).pack()
 
 class SystemOverlay:
     def __init__(self, root):
@@ -81,7 +74,6 @@ class SystemOverlay:
 
     def setup_resize_handles(self):
         handle_size = 8
-        
         handle_color = self._config['background_color']
         
         # Bottom-right handle
@@ -115,7 +107,7 @@ class SystemOverlay:
         
         # Calculate font size based on window area
         area = width * height
-        scale_factor = (area / (250 * 160)) ** 0.5  # Square root scaling
+        scale_factor = (area / (230 * 160)) ** 0.5  # Square root scaling
         return int(base_size * scale_factor)
 
     def update_font_size(self):
@@ -140,17 +132,17 @@ class SystemOverlay:
             mem_info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
             used_mem = mem_info.used / 1024**3
             total_mem = mem_info.total / 1024**3
-            return f"GPU Usage: {gpu_usage}%\nGPU Temp: {temp}°C\nVRAM: {used_mem:.1f}/{total_mem:.1f} GB"
+            return f"GPU: {gpu_usage}%\nGPU Temp: {temp}°C\nVRAM: {used_mem:.1f}/{total_mem:.1f} GB"
         except:
             return "GPU: Error"
 
     def update_system_info(self):
         info = []
         if self._config['show_cpu']:
-            info.append(f"CPU Usage: {psutil.cpu_percent()}%")
+            info.append(f"CPU: {psutil.cpu_percent()}%")
         if self._config['show_memory']:
             memory = psutil.virtual_memory()
-            info.append(f"RAM Usage: {memory.percent}%")
+            info.append(f"RAM: {memory.percent}%")
         if self._config['show_gpu']:
             info.append(self.get_gpu_info())
         if self._config['show_timestamp']:
@@ -170,24 +162,8 @@ class SystemOverlay:
 
     def show_context_menu(self, event):
         menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Settings", command=self.show_settings)
-        menu.add_command(label="Mode", command=self.change_mode)
-        menu.add_separator()
         menu.add_command(label="Close", command=self.root.destroy)
         menu.post(event.x_root, event.y_root)
-
-    def show_settings(self):
-        SettingsWindow(self.root, self._config, self.apply_settings)
-
-    def apply_settings(self):
-        self.canvas.config(bg=self._config['background_color'])
-        self.root.attributes('-alpha', self._config['background_opacity'])
-        self.label.config(fg=self._config['text_color'])
-        self.update_font_size()
-        self.update_system_info()
-
-    def change_mode(self):
-        print("Mode menu clicked")
 
     def start_resize_br(self, event):
         self._resize_data = {
