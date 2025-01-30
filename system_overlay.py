@@ -1,4 +1,4 @@
-# deep resize doesnt work
+#  resize works
 
 import tkinter as tk
 import psutil
