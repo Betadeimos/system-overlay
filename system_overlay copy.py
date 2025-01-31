@@ -1,16 +1,15 @@
-# System Overlay with proper sizing and spacing and animated bars
+# System Overlay with proper sizing and spacing
 import tkinter as tk
 import psutil
 import pynvml
 from collections import deque
-from PIL import ImageTk, Image, ImageDraw  # Add this import
 
 # Configuration Settings
 DEFAULT_CONFIG = {
     'base_font_size': 18,
     'text_color': 'white',
     'background_color': 'black',
-    'window_width': 180,
+    'window_width': 210,
     'window_height': 175,
     'update_interval': 500,
     'show_cpu': True,
@@ -29,9 +28,7 @@ DEFAULT_CONFIG = {
     'smoothing_samples': 5,
     'vertical_spacing': 43,
     'top_margin': 5,       # Reduced margin
-    'bottom_margin': 5,    # Reduced margin
-    'window_corner_radius': 8,  # Slightly reduced for better appearance
-    'bar_corner_radius': 4,     # Slightly reduced for better appearance
+    'bottom_margin': 5     # Reduced margin
 }
 
 class SystemOverlay:
@@ -51,9 +48,6 @@ class SystemOverlay:
             bd=0
         )
         self.canvas.pack(fill=tk.BOTH, expand=True)
-        
-        # Create rounded rectangle background
-        self.update_background()
         
         # Initialize GPU monitoring
         self.setup_gpu()
@@ -77,11 +71,11 @@ class SystemOverlay:
         
         # Store canvas items for efficient updates
         self.metric_items = {
-            'cpu': {'bar': None, 'bar_image': None, 'text': None},
-            'ram': {'bar': None, 'bar_image': None, 'text': None},
-            'gpu': {'bar': None, 'bar_image': None, 'text': None},
-            'gpu_temp': {'bar': None, 'bar_image': None, 'text': None},
-            'vram': {'bar': None, 'bar_image': None, 'text': None}
+            'cpu': {'bar': None, 'text': None},
+            'ram': {'bar': None, 'text': None},
+            'gpu': {'bar': None, 'text': None},
+            'gpu_temp': {'bar': None, 'text': None},
+            'vram': {'bar': None, 'text': None}
         }
         
         # Start system info updates
@@ -175,73 +169,37 @@ class SystemOverlay:
         
         self.root.after(self._config['update_interval'], self.update_system_info)
 
-    def update_background(self):
-        # Create rounded rectangle background
-        width = self.root.winfo_width()
-        height = self.root.winfo_height()
-        
-        # Delete existing background
-        self.canvas.delete('background')
-        
-        # Create an image with rounded corners
-        image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(image)
-        
-        # Draw rounded rectangle with black background
-        draw.rounded_rectangle(
-            [(0, 0), (width, height)],
-            radius=self._config['window_corner_radius'],
-            fill=self._config['background_color']  # Use configured background color
-        )
-        
-        # Convert to PhotoImage and keep reference
-        self.bg_image = ImageTk.PhotoImage(image)
-        self.canvas.create_image(0, 0, image=self.bg_image, anchor='nw', tags='background')
-        self.canvas.lower('background')  # Ensure background stays at the bottom
-
     def create_metric_bar(self, y_pos, width_percent, color, text, metric_name):
         # Calculate dimensions
-        padding = 10
-        height = max(1, int(self._config['bar_height'] * (self.root.winfo_height() / 220) ** 1.05))
-        available_width = max(1, self.root.winfo_width() - (padding * 2))
-        bar_width = max(1, int((width_percent / 100.0) * available_width))
+        padding = 10  # Keep consistent initial padding
+        height = int(self._config['bar_height'] * (self.root.winfo_height() / 220) ** 1.05)
+        available_width = self.root.winfo_width() - (padding * 2)
+        bar_width = (width_percent / 100.0) * available_width
         font_size = self.calculate_font_size()
         
-        # Create rounded rectangle for bar
+        # Update or create bar
         if self.metric_items[metric_name]['bar']:
-            self.canvas.delete(self.metric_items[metric_name]['bar'])
+            self.canvas.coords(self.metric_items[metric_name]['bar'],
+                             padding, y_pos, padding + bar_width, y_pos + height)
+        else:
+            self.metric_items[metric_name]['bar'] = self.canvas.create_rectangle(
+                padding, y_pos, padding + bar_width, y_pos + height,
+                fill=color, outline='', tags='bar'
+            )
         
-        # Create an image for the rounded bar
-        bar_image = Image.new('RGBA', (bar_width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(bar_image)
-        
-        # Draw rounded rectangle bar with anti-aliasing
-        draw.rounded_rectangle(
-            [(0, 0), (bar_width-1, height-1)],  # Subtract 1 to ensure full bar is visible
-            radius=min(self._config['bar_corner_radius'], height // 2, bar_width // 2),
-            fill=color
-        )
-        
-        # Convert to PhotoImage and keep reference
-        self.metric_items[metric_name]['bar_image'] = ImageTk.PhotoImage(bar_image)
-        self.metric_items[metric_name]['bar'] = self.canvas.create_image(
-            padding, y_pos,
-            image=self.metric_items[metric_name]['bar_image'],
-            anchor='nw',
-            tags='bar'
-        )
-        
-        # Update or create text (ensure text is above bars)
-        text_padding = padding + 5
+        # Update or create text
+        text_padding = padding + 5  # Slight additional padding for text from the left edge
         if self.metric_items[metric_name]['text']:
-            self.canvas.delete(self.metric_items[metric_name]['text'])
-        
-        self.metric_items[metric_name]['text'] = self.canvas.create_text(
-            text_padding, y_pos + (height / 2),
-            text=text, anchor='w', fill=self._config['text_color'],
-            font=('Arial', font_size), tags='text'
-        )
-        self.canvas.tag_raise('text')  # Ensure text stays on top
+            self.canvas.coords(self.metric_items[metric_name]['text'],
+                             text_padding, y_pos + (height / 2))
+            self.canvas.itemconfig(self.metric_items[metric_name]['text'],
+                                 text=text, font=('Arial', font_size))
+        else:
+            self.metric_items[metric_name]['text'] = self.canvas.create_text(
+                text_padding, y_pos + (height / 2),
+                text=text, anchor='w', fill=self._config['text_color'],
+                font=('Arial', font_size), tags='text'
+            )
 
     def calculate_font_size(self):
         width = self.root.winfo_width()
@@ -334,8 +292,6 @@ class SystemOverlay:
             self.root.geometry(f"{new_width}x{new_height}+{new_x}+{new_y}")
         else:
             self.root.geometry(f"{new_width}x{new_height}")
-        
-        self.update_background()  # Update background when resizing
 
 if __name__ == '__main__':
     root = tk.Tk()
