@@ -15,11 +15,11 @@ TRANSPARENT = '#000001'
 TRANSPARENT_RGB = (0, 0, 1)
 
 DEFAULT_COLORS = {
-    'cpu': '#3b82f6',
-    'ram': '#8b5cf6',
-    'gpu': '#10b981',
-    'gpu_temp': '#f59e0b',
-    'vram': '#06b6d4',
+    'cpu': '#93b8e8',
+    'ram': '#c4aef0',
+    'gpu': '#87c498',
+    'gpu_temp': '#dfc77e',
+    'vram': '#7cc4cc',
 }
 
 
@@ -91,6 +91,8 @@ class OverlayApp:
         self.collector = MetricCollector(self.cfg['smoothing_samples'])
 
         w, h = self.cfg['window_width'], self.cfg['window_height']
+        sx = (root.winfo_screenwidth() - w) // 2
+        sy = (root.winfo_screenheight() - h) // 2
 
         # Background window — its -alpha drives panel opacity.
         # Content that should fade with the background (the panel itself
@@ -99,8 +101,8 @@ class OverlayApp:
         self.bg_win.overrideredirect(True)
         self.bg_win.attributes('-topmost', True)
         self.bg_win.attributes('-transparentcolor', TRANSPARENT)
-        self.bg_win.attributes('-alpha', self.cfg['background_opacity'])
-        self.bg_win.geometry(f'{w}x{h}')
+        self.bg_win.attributes('-alpha', max(0.01, self.cfg['background_opacity']))
+        self.bg_win.geometry(f'{w}x{h}+{sx}+{sy}')
         self.bg_canvas = tk.Canvas(self.bg_win, bg=TRANSPARENT, highlightthickness=0, bd=0)
         self.bg_canvas.pack(fill='both', expand=True)
         self._bg_photo = None
@@ -111,7 +113,7 @@ class OverlayApp:
         self.root.overrideredirect(True)
         self.root.attributes('-topmost', True)
         self.root.attributes('-transparentcolor', TRANSPARENT)
-        self.root.geometry(f'{w}x{h}')
+        self.root.geometry(f'{w}x{h}+{sx}+{sy}')
         self.canvas = tk.Canvas(root, bg=TRANSPARENT, highlightthickness=0, bd=0)
         self.canvas.pack(fill='both', expand=True)
         self._ct_photo = None
@@ -153,7 +155,7 @@ class OverlayApp:
 
     def load_config(self):
         defaults = {
-            'window_width': 220, 'window_height': 280, 'update_interval': 500,
+            'window_width': 224, 'window_height': 224, 'update_interval': 500,
             'background_color': '#0e1113', 'background_opacity': 0.75,
             'text_color': '#e2e8f0', 'corner_radius': 14,
             'smoothing_samples': 5, 'show_gpu': True,
@@ -364,7 +366,7 @@ class OverlayApp:
     def _set_opacity(self, val):
         v = float(val)
         self.cfg['background_opacity'] = v
-        self.bg_win.attributes('-alpha', v)
+        self.bg_win.attributes('-alpha', max(0.01, v))
         self._save()
 
 

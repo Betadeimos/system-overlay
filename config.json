@@ -1,6 +1,6 @@
 {
-    "window_width": 223,
-    "window_height": 197,
+    "window_width": 224,
+    "window_height": 224,
     "update_interval": 500,
     "background_color": "#0d1117",
     "background_opacity": 0.0,
@@ -9,11 +9,11 @@
     "smoothing_samples": 5,
     "show_gpu": true,
     "colors": {
-        "cpu": "#58a6ff",
-        "ram": "#bc8cff",
-        "gpu": "#3fb950",
-        "gpu_temp": "#d29922",
-        "vram": "#39c5cf"
+        "cpu": "#93b8e8",
+        "ram": "#c4aef0",
+        "gpu": "#87c498",
+        "gpu_temp": "#dfc77e",
+        "vram": "#7cc4cc"
     },
     "min_width": 150,
     "min_height": 120
