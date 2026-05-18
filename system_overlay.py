@@ -1,6 +1,6 @@
 import tkinter as tk
-from tkinter import ttk, colorchooser
-from PIL import ImageTk, Image, ImageDraw
+from tkinter import colorchooser
+from PIL import ImageTk, Image, ImageDraw, ImageFont
 import json
 import os
 import logging
@@ -8,17 +8,30 @@ import psutil
 import pynvml
 from collections import deque
 
-# --- Setup Logging ---
 logging.basicConfig(filename='system_overlay.log', level=logging.ERROR,
                     format='%(asctime)s - %(levelname)s - %(message)s')
+
+TRANSPARENT = '#000001'
+TRANSPARENT_RGB = (0, 0, 1)
+
+DEFAULT_COLORS = {
+    'cpu': '#3b82f6',
+    'ram': '#8b5cf6',
+    'gpu': '#10b981',
+    'gpu_temp': '#f59e0b',
+    'vram': '#06b6d4',
+}
+
 
 def hex_to_rgb(hex_color):
     hex_color = hex_color.lstrip('#')
     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
+
 class GPUManager:
     _initialized = False
     _gpu_available = False
+
     @classmethod
     def initialize(cls):
         if not cls._initialized:
@@ -29,25 +42,39 @@ class GPUManager:
                 logging.error(f"Failed to initialize NVML: {e}")
             cls._initialized = True
         return cls._gpu_available
+
     @classmethod
     def get_info(cls):
-        if not cls.initialize(): return None
+        if not cls.initialize():
+            return None
         try:
             handle = pynvml.nvmlDeviceGetHandleByIndex(0)
             mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
             util = pynvml.nvmlDeviceGetUtilizationRates(handle)
             temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
-            return {'usage': util.gpu, 'used_mem': mem.used / (1024**3), 'total_mem': mem.total / (1024**3), 'temp': temp}
-        except Exception: return None
+            return {
+                'usage': util.gpu,
+                'used_mem': mem.used / 1073741824,
+                'total_mem': mem.total / 1073741824,
+                'temp': temp,
+            }
+        except Exception:
+            return None
+
 
 class MetricCollector:
     def __init__(self, samples=5):
         self.buffers = {k: deque(maxlen=samples) for k in ['cpu', 'ram', 'gpu', 'temp', 'vram']}
+
     def _smooth(self, key, val):
         self.buffers[key].append(val)
         return sum(self.buffers[key]) / len(self.buffers[key])
+
     def collect(self, show_gpu=True):
-        metrics = {'cpu': self._smooth('cpu', psutil.cpu_percent()), 'ram': self._smooth('ram', psutil.virtual_memory().percent)}
+        metrics = {
+            'cpu': self._smooth('cpu', psutil.cpu_percent()),
+            'ram': self._smooth('ram', psutil.virtual_memory().percent),
+        }
         if show_gpu:
             info = GPUManager.get_info()
             if info:
@@ -56,180 +83,290 @@ class MetricCollector:
                 metrics['vram'] = self._smooth('vram', (info['used_mem'] / info['total_mem']) * 100)
         return metrics
 
+
 class OverlayApp:
     def __init__(self, root):
         self.root = root
-        self.config = self.load_config()
-        self.collector = MetricCollector(self.config['smoothing_samples'])
-        
-        # Window Setup
+        self.cfg = self.load_config()
+        self.collector = MetricCollector(self.cfg['smoothing_samples'])
+
+        w, h = self.cfg['window_width'], self.cfg['window_height']
+
+        # Background window — its -alpha drives panel opacity.
+        # Content that should fade with the background (the panel itself
+        # and bar tracks) lives here.
+        self.bg_win = tk.Toplevel(root)
+        self.bg_win.overrideredirect(True)
+        self.bg_win.attributes('-topmost', True)
+        self.bg_win.attributes('-transparentcolor', TRANSPARENT)
+        self.bg_win.attributes('-alpha', self.cfg['background_opacity'])
+        self.bg_win.geometry(f'{w}x{h}')
+        self.bg_canvas = tk.Canvas(self.bg_win, bg=TRANSPARENT, highlightthickness=0, bd=0)
+        self.bg_canvas.pack(fill='both', expand=True)
+        self._bg_photo = None
+        self._bg_id = None
+
+        # Content window — always fully opaque. Text, bar fills, and
+        # the resize grip live here so they never fade.
         self.root.overrideredirect(True)
         self.root.attributes('-topmost', True)
-        self.root.attributes('-transparentcolor', '#000001') # This color will be invisible
-        self.root.geometry(f"{self.config['window_width']}x{self.config['window_height']}")
-        
-        # Main Canvas
-        self.canvas = tk.Canvas(root, bg='#000001', highlightthickness=0, bd=0)
-        self.canvas.pack(fill=tk.BOTH, expand=True)
-        
-        # State
-        self.bg_photo = None
-        self.bg_id = None
-        self.metric_ui = {}
-        self.drag_start = (0, 0)
-        
-        # UI Elements
-        self.setup_bindings()
-        self.draw_ui()
-        self.update_loop()
+        self.root.attributes('-transparentcolor', TRANSPARENT)
+        self.root.geometry(f'{w}x{h}')
+        self.canvas = tk.Canvas(root, bg=TRANSPARENT, highlightthickness=0, bd=0)
+        self.canvas.pack(fill='both', expand=True)
+        self._ct_photo = None
+        self._ct_id = None
+
+        self._drag_start = (0, 0)
+        self._resize_base = None
+        self._fonts = {}
+
+        for c in (self.canvas, self.bg_canvas):
+            c.bind('<Button-1>', self._on_click)
+            c.bind('<B1-Motion>', self._on_motion)
+            c.bind('<Button-3>', self._on_menu)
+
+        self.root.bind('<Configure>',
+                       lambda e: self._sync_bg() if e.widget is self.root else None)
+
+        self.root.update_idletasks()
+        self._sync_bg()
+        self._loop()
+
+    # ── Fonts ────────────────────────────────────────────────────────
+
+    def _font(self, size, bold=False):
+        key = (max(8, int(size)), bold)
+        if key not in self._fonts:
+            names = ['segoeuib', 'arialbd'] if bold else ['segoeui', 'arial']
+            for name in names:
+                for path in (name + '.ttf', f'C:/Windows/Fonts/{name}.ttf'):
+                    try:
+                        self._fonts[key] = ImageFont.truetype(path, key[0])
+                        return self._fonts[key]
+                    except OSError:
+                        pass
+            self._fonts[key] = ImageFont.load_default()
+        return self._fonts[key]
+
+    # ── Config ───────────────────────────────────────────────────────
 
     def load_config(self):
-        default = {
-            'window_width': 180, 'window_height': 175, 'update_interval': 500,
-            'background_color': '#0e1113', 'background_opacity': 0.8,
-            'bar_color': '#34434f', 'text_color': '#eeeeee',
-            'corner_radius': 14, 'smoothing_samples': 5, 'show_gpu': True
+        defaults = {
+            'window_width': 220, 'window_height': 280, 'update_interval': 500,
+            'background_color': '#0e1113', 'background_opacity': 0.75,
+            'text_color': '#e2e8f0', 'corner_radius': 14,
+            'smoothing_samples': 5, 'show_gpu': True,
+            'colors': dict(DEFAULT_COLORS),
+            'min_width': 150, 'min_height': 120,
         }
-        if os.path.exists("config.json"):
-            with open("config.json", "r") as f:
-                try: default.update(json.load(f))
-                except: pass
-        return default
+        if os.path.exists('config.json'):
+            with open('config.json') as f:
+                try:
+                    defaults.update(json.load(f))
+                except Exception:
+                    pass
+        return defaults
 
-    def save_config(self):
-        self.config['window_width'] = self.root.winfo_width()
-        self.config['window_height'] = self.root.winfo_height()
-        with open("config.json", "w") as f: json.dump(self.config, f, indent=4)
+    def _save(self):
+        self.cfg['window_width'] = self.root.winfo_width()
+        self.cfg['window_height'] = self.root.winfo_height()
+        with open('config.json', 'w') as f:
+            json.dump(self.cfg, f, indent=4)
 
-    def setup_bindings(self):
-        self.canvas.bind('<Button-1>', lambda e: setattr(self, 'drag_start', (e.x, e.y)))
-        self.canvas.bind('<B1-Motion>', self.on_drag)
-        self.canvas.bind('<Button-3>', self.show_menu)
-        self.root.bind('<Configure>', lambda e: self.draw_background())
+    # ── Window sync ──────────────────────────────────────────────────
 
-    def on_drag(self, e):
-        x = self.root.winfo_x() + (e.x - self.drag_start[0])
-        y = self.root.winfo_y() + (e.y - self.drag_start[1])
-        self.root.geometry(f"+{x}+{y}")
-
-    def draw_background(self):
+    def _sync_bg(self):
+        x, y = self.root.winfo_x(), self.root.winfo_y()
         w, h = self.root.winfo_width(), self.root.winfo_height()
-        if w < 10 or h < 10: return
-        
-        # Create image with transparency
+        self.bg_win.geometry(f'{w}x{h}+{x}+{y}')
+        self.root.lift()
+
+    # ── Input ────────────────────────────────────────────────────────
+
+    def _on_click(self, e):
+        w, h = self.root.winfo_width(), self.root.winfo_height()
+        if e.x > w - 22 and e.y > h - 22:
+            self._resize_base = (e.x_root, e.y_root, w, h)
+        else:
+            self._resize_base = None
+            self._drag_start = (e.x, e.y)
+
+    def _on_motion(self, e):
+        if self._resize_base:
+            dx = e.x_root - self._resize_base[0]
+            dy = e.y_root - self._resize_base[1]
+            nw = max(self.cfg['min_width'], int(self._resize_base[2] + dx))
+            nh = max(self.cfg['min_height'], int(self._resize_base[3] + dy))
+            self.root.geometry(f'{nw}x{nh}')
+        else:
+            x = self.root.winfo_x() + (e.x - self._drag_start[0])
+            y = self.root.winfo_y() + (e.y - self._drag_start[1])
+            self.root.geometry(f'+{x}+{y}')
+        self._sync_bg()
+
+    # ── Layout ───────────────────────────────────────────────────────
+
+    def _layout(self, n, w, h):
+        mx = max(12, int(w * 0.07))
+        my = max(10, int(h * 0.06))
+        cw = w - 2 * mx
+        ch = h - 2 * my
+        rh = ch / max(1, n)
+        fsz = max(9, min(15, int(rh * 0.32)))
+        bh = max(6, min(22, int(rh * 0.4)))
+        br = max(3, bh // 2)
+        gap = max(4, int(rh * 0.14))
+        return mx, my, cw, rh, fsz, bh, br, gap
+
+    # ── Rendering ────────────────────────────────────────────────────
+
+    def _draw_bg(self, visible, w, h):
+        bg_rgb = hex_to_rgb(self.cfg['background_color'])
+        radius = self.cfg.get('corner_radius', 14)
+
+        img = Image.new('RGB', (w, h), TRANSPARENT_RGB)
+        draw = ImageDraw.Draw(img)
+        draw.rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, fill=bg_rgb)
+
+        if visible:
+            mx, my, cw, rh, fsz, bh, br, gap = self._layout(len(visible), w, h)
+            track_rgb = tuple(min(255, c + 18) for c in bg_rgb)
+            y = my
+            for _ in visible:
+                bar_y = y + fsz + gap
+                draw.rounded_rectangle([mx, bar_y, mx + cw, bar_y + bh],
+                                       radius=br, fill=track_rgb)
+                y += rh
+
+        self._bg_photo = ImageTk.PhotoImage(img)
+        if self._bg_id:
+            self.bg_canvas.itemconfig(self._bg_id, image=self._bg_photo)
+        else:
+            self._bg_id = self.bg_canvas.create_image(0, 0, image=self._bg_photo, anchor='nw')
+
+    def _draw_content(self, visible, w, h):
+        text_rgb = hex_to_rgb(self.cfg['text_color'])
         img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
-        rgb = hex_to_rgb(self.config['background_color'])
-        alpha = int(255 * self.config['background_opacity'])
-        
-        draw.rounded_rectangle([0, 0, w, h], radius=self.config['corner_radius'], fill=(*rgb, alpha))
-        
-        self.bg_photo = ImageTk.PhotoImage(img)
-        if self.bg_id: self.canvas.delete(self.bg_id)
-        self.bg_id = self.canvas.create_image(0, 0, image=self.bg_photo, anchor='nw')
-        self.canvas.tag_lower(self.bg_id)
 
-    def draw_ui(self):
-        # Initial background draw
-        self.root.update_idletasks()
-        self.draw_background()
-        
-        # Resize Handle (Visual Only, Logic in separate binding for stability)
-        self.resize_marker = self.canvas.create_oval(0, 0, 0, 0, fill="#333333", outline="", tags="resize")
-        self.canvas.tag_bind("resize", "<Button-1>", self.start_resize)
-        self.canvas.tag_bind("resize", "<B1-Motion>", self.do_resize)
-        self.update_resize_handle_pos()
+        if visible:
+            mx, my, cw, rh, fsz, bh, br, gap = self._layout(len(visible), w, h)
+            font = self._font(fsz, bold=True)
 
-    def update_resize_handle_pos(self):
-        w, h = self.root.winfo_width(), self.root.winfo_height()
-        self.canvas.coords(self.resize_marker, w-15, h-15, w-5, h-5)
+            y = my
+            for name, val in visible:
+                pct = min(1.0, val / 100.0)
+                if name == 'gpu_temp':
+                    label, val_str = 'TEMP', f'{val:.0f}°C'
+                else:
+                    label, val_str = name.upper(), f'{val:.1f}%'
 
-    def start_resize(self, e):
-        self.resizing = True
-        self.resize_base = (e.x_root, e.y_root, self.root.winfo_width(), self.root.winfo_height())
-    
-    def do_resize(self, e):
-        dx, dy = e.x_root - self.resize_base[0], e.y_root - self.resize_base[1]
-        nw, nh = max(130, self.resize_base[2] + dx), max(130, self.resize_base[3] + dy)
-        self.root.geometry(f"{nw}x{nh}")
-        self.update_resize_handle_pos()
+                draw.text((mx, y), label, fill=(*text_rgb, 255), font=font)
+                bb = draw.textbbox((0, 0), val_str, font=font)
+                draw.text((w - mx - (bb[2] - bb[0]), y), val_str,
+                          fill=(*text_rgb, 255), font=font)
 
-    def update_loop(self):
-        metrics = self.collector.collect(self.config['show_gpu'])
-        self.render_metrics(metrics)
-        self.root.after(self.config['update_interval'], self.update_loop)
+                bar_y = y + fsz + gap
+                fill_w = max(0, int(pct * cw))
+                if fill_w > 0:
+                    bar_rgb = hex_to_rgb(
+                        self.cfg.get('colors', {}).get(name, '#3b82f6'))
+                    draw.rounded_rectangle(
+                        [mx, bar_y, mx + fill_w, bar_y + bh],
+                        radius=br, fill=(*bar_rgb, 255))
 
-    def render_metrics(self, metrics):
-        w, h = self.root.winfo_width(), self.root.winfo_height()
-        padding = 15
-        y = 15
-        spacing = (h - 2*padding) / len([m for m in metrics.values() if m is not None])
-        bar_h = max(4, int(spacing * 0.4))
-        font_sz = max(8, int(h / 20))
-        
-        for name, val in metrics.items():
-            if val is None: continue
-            
-            label = f"{name.upper()}: {val:.1f}%"
-            if name == 'gpu_temp': label = f"TEMP: {val:.1f}°C"
-            
-            self._update_metric_item(name, y, val, bar_h, w - 2*padding, label, font_sz)
-            y += spacing
+                y += rh
 
-    def _update_metric_item(self, name, y, pct, h, max_w, txt, font_sz):
-        bar_w = max(2, int((pct/100) * max_w))
-        
-        if name not in self.metric_ui:
-            # Note: We use the canvas bg color #000001 for "invisible" areas, 
-            # but Tkinter doesn't support per-item alpha. 
-            # To keep text/bars opaque while BG is transparent, we draw them normally.
-            self.metric_ui[name] = {
-                'bar_bg': self.canvas.create_rectangle(15, y+font_sz+5, 15+max_w, y+font_sz+5+h, fill="#222222", outline=""),
-                'bar': self.canvas.create_rectangle(15, y+font_sz+5, 15+bar_w, y+font_sz+5+h, fill=self.config['bar_color'], outline=""),
-                'text': self.canvas.create_text(15, y, text=txt, anchor='nw', fill=self.config['text_color'], font=('Arial', font_sz, 'bold'))
-            }
+        for gx in range(3):
+            for gy in range(3):
+                if gx + gy >= 2:
+                    cx, cy = w - 7 - gx * 5, h - 7 - gy * 5
+                    draw.ellipse([cx - 1, cy - 1, cx + 1, cy + 1],
+                                 fill=(*text_rgb, 100))
+
+        final = Image.new('RGB', (w, h), TRANSPARENT_RGB)
+        final.paste(img, mask=img.split()[3])
+        self._ct_photo = ImageTk.PhotoImage(final)
+        if self._ct_id:
+            self.canvas.itemconfig(self._ct_id, image=self._ct_photo)
         else:
-            item = self.metric_ui[name]
-            self.canvas.coords(item['bar_bg'], 15, y+font_sz+5, 15+max_w, y+font_sz+5+h)
-            self.canvas.coords(item['bar'], 15, y+font_sz+5, 15+bar_w, y+font_sz+5+h)
-            self.canvas.coords(item['text'], 15, y)
-            self.canvas.itemconfig(item['text'], text=txt, font=('Arial', font_sz, 'bold'), fill=self.config['text_color'])
-            self.canvas.itemconfig(item['bar'], fill=self.config['bar_color'])
+            self._ct_id = self.canvas.create_image(0, 0, image=self._ct_photo, anchor='nw')
 
-    def show_menu(self, e):
+    # ── Main loop ────────────────────────────────────────────────────
+
+    def _loop(self):
+        metrics = self.collector.collect(self.cfg['show_gpu'])
+        visible = [(n, v) for n, v in metrics.items() if v is not None]
+        w, h = self.root.winfo_width(), self.root.winfo_height()
+        if w >= 10 and h >= 10:
+            self._draw_bg(visible, w, h)
+            self._draw_content(visible, w, h)
+        self.root.after(self.cfg['update_interval'], self._loop)
+
+    # ── Menu / Settings ──────────────────────────────────────────────
+
+    def _on_menu(self, e):
         m = tk.Menu(self.root, tearoff=0)
-        m.add_command(label="Settings", command=self.open_settings)
+        m.add_command(label='Settings', command=self._open_settings)
         m.add_separator()
-        m.add_command(label="Exit", command=self.root.destroy)
+        m.add_command(label='Exit', command=self.root.destroy)
         m.post(e.x_root, e.y_root)
 
-    def open_settings(self):
-        swin = tk.Toplevel(self.root)
-        swin.title("Settings")
-        swin.attributes('-topmost', True)
-        
-        def set_color(target):
+    def _open_settings(self):
+        sw = tk.Toplevel(self.root)
+        sw.title('Overlay Settings')
+        sw.attributes('-topmost', True)
+        sw.geometry('280x400')
+        sw.configure(bg='#16192e')
+        sw.resizable(False, False)
+
+        f = tk.Frame(sw, bg='#16192e', padx=16, pady=12)
+        f.pack(fill='both', expand=True)
+
+        def heading(text):
+            tk.Label(f, text=text, font=('Segoe UI', 10, 'bold'),
+                     fg='#94a3b8', bg='#16192e').pack(anchor='w', pady=(10, 4))
+
+        def color_btn(text, cmd):
+            tk.Button(f, text=text, font=('Segoe UI', 9), fg='#e2e8f0',
+                      bg='#1e293b', activebackground='#334155',
+                      activeforeground='#e2e8f0', bd=0, padx=10, pady=5,
+                      cursor='hand2', command=cmd).pack(fill='x', pady=2)
+
+        def pick(key, nested=None):
             c = colorchooser.askcolor()[1]
-            if c:
-                if target == 'bg': self.config['background_color'] = c
-                elif target == 'bar': self.config['bar_color'] = c
-                elif target == 'text': self.config['text_color'] = c
-                self.draw_background()
-                self.save_config()
+            if not c:
+                return
+            if nested:
+                self.cfg.setdefault(nested, {})[key] = c
+            else:
+                self.cfg[key] = c
+            self._save()
 
-        ttk.Button(swin, text="Background Color", command=lambda: set_color('bg')).pack(pady=5, padx=10)
-        ttk.Button(swin, text="Bar Color", command=lambda: set_color('bar')).pack(pady=5, padx=10)
-        ttk.Button(swin, text="Text Color", command=lambda: set_color('text')).pack(pady=5, padx=10)
-        
-        tk.Label(swin, text="Background Opacity").pack()
-        op_scale = ttk.Scale(swin, from_=0.0, to=1.0, value=self.config['background_opacity'],
-                            command=lambda v: self.update_opacity(v))
-        op_scale.pack(fill='x', padx=10)
+        heading('Opacity')
+        s = tk.Scale(f, from_=0.0, to=1.0, resolution=0.01, orient='horizontal',
+                     bg='#16192e', fg='#e2e8f0', troughcolor='#1e293b',
+                     highlightthickness=0, bd=0, sliderrelief='flat',
+                     command=self._set_opacity)
+        s.set(self.cfg['background_opacity'])
+        s.pack(fill='x', pady=(0, 5))
 
-    def update_opacity(self, val):
-        self.config['background_opacity'] = float(val)
-        self.draw_background()
-        self.save_config()
+        heading('Colors')
+        color_btn('Background', lambda: pick('background_color'))
+        color_btn('Text', lambda: pick('text_color'))
+
+        heading('Metric Colors')
+        for mkey, label in [('cpu', 'CPU'), ('ram', 'RAM'), ('gpu', 'GPU'),
+                            ('gpu_temp', 'Temperature'), ('vram', 'VRAM')]:
+            color_btn(f'  {label}', lambda k=mkey: pick(k, 'colors'))
+
+    def _set_opacity(self, val):
+        v = float(val)
+        self.cfg['background_opacity'] = v
+        self.bg_win.attributes('-alpha', v)
+        self._save()
+
 
 if __name__ == '__main__':
     root = tk.Tk()

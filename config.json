@@ -1,31 +1,20 @@
 {
-    "window_width": 185,
-    "window_height": 153,
+    "window_width": 223,
+    "window_height": 197,
     "update_interval": 500,
-    "background_color": "#0e1113",
+    "background_color": "#0d1117",
     "background_opacity": 0.0,
-    "bar_color": "#34434f",
-    "text_color": "#eeeeee",
+    "text_color": "#e6edf3",
     "corner_radius": 14,
     "smoothing_samples": 5,
     "show_gpu": true,
-    "base_font_size": 18,
-    "show_cpu": true,
-    "show_memory": true,
-    "bar_height": 30,
-    "vertical_spacing": 43,
-    "window_corner_radius": 14,
     "colors": {
-        "cpu": "#34434f",
-        "ram": "#34434f",
-        "gpu": "#34434f",
-        "gpu_temp": "#34434f",
-        "vram": "#34434f"
+        "cpu": "#58a6ff",
+        "ram": "#bc8cff",
+        "gpu": "#3fb950",
+        "gpu_temp": "#d29922",
+        "vram": "#39c5cf"
     },
-    "bar_padding": 5,
-    "top_margin": 5,
-    "bottom_margin": 5,
-    "bar_corner_radius": 4,
-    "min_width": 130,
-    "min_height": 130
+    "min_width": 150,
+    "min_height": 120
 }
