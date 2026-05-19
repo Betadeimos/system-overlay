@@ -373,7 +373,7 @@ class OverlayApp:
         sw = tk.Toplevel(self.root)
         sw.title('Overlay Settings')
         sw.attributes('-topmost', True)
-        sw.geometry('280x560')
+        sw.geometry('280x620')
         sw.configure(bg='#16192e')
         sw.resizable(False, False)
 
