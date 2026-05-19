@@ -3,6 +3,7 @@ from tkinter import colorchooser
 from PIL import ImageTk, Image, ImageDraw, ImageFont
 import json
 import os
+import time
 import logging
 import psutil
 import pynvml
@@ -90,6 +91,11 @@ class OverlayApp:
         self.cfg = self.load_config()
         self.collector = MetricCollector(self.cfg['smoothing_samples'])
 
+        self._lt = self._load_lifetime()
+        self._lt_base_seconds = self._lt['total_seconds']
+        self._lt_session_start = time.time()
+        self._lt_tick = 0
+
         w, h = self.cfg['window_width'], self.cfg['window_height']
         sx = (root.winfo_screenwidth() - w) // 2
         sy = (root.winfo_screenheight() - h) // 2
@@ -175,6 +181,53 @@ class OverlayApp:
         self.cfg['window_height'] = self.root.winfo_height()
         with open('config.json', 'w') as f:
             json.dump(self.cfg, f, indent=4)
+
+    # ── Lifetime stats ───────────────────────────────────────────────
+
+    def _load_lifetime(self):
+        data = {'total_seconds': 0.0, 'sums': {}, 'counts': {}}
+        if os.path.exists('lifetime_stats.json'):
+            with open('lifetime_stats.json') as f:
+                try:
+                    data.update(json.load(f))
+                except Exception:
+                    pass
+        return data
+
+    def _save_lifetime(self):
+        self._lt['total_seconds'] = self._lt_base_seconds + (time.time() - self._lt_session_start)
+        try:
+            with open('lifetime_stats.json', 'w') as f:
+                json.dump(self._lt, f, indent=4)
+        except Exception:
+            pass
+
+    def _accumulate_lifetime(self, metrics):
+        for name, val in metrics.items():
+            if val is not None:
+                self._lt['sums'][name] = self._lt['sums'].get(name, 0.0) + val
+                self._lt['counts'][name] = self._lt['counts'].get(name, 0) + 1
+        self._lt_tick += 1
+        if self._lt_tick >= 120:  # autosave every ~60 s
+            self._save_lifetime()
+            self._lt_tick = 0
+
+    def _fmt_time(self, seconds):
+        s = int(seconds)
+        if s < 60:
+            return f"{s}s"
+        elif s < 3600:
+            return f"{s // 60}m {s % 60}s"
+        elif s < 86400:
+            h, rem = divmod(s, 3600)
+            return f"{h}h {rem // 60}m"
+        else:
+            d, rem = divmod(s, 86400)
+            return f"{d}d {rem // 3600}h"
+
+    def _quit(self):
+        self._save_lifetime()
+        self.root.destroy()
 
     # ── Window sync ──────────────────────────────────────────────────
 
@@ -304,6 +357,7 @@ class OverlayApp:
         if w >= 10 and h >= 10:
             self._draw_bg(visible, w, h)
             self._draw_content(visible, w, h)
+        self._accumulate_lifetime(metrics)
         self.root.after(self.cfg['update_interval'], self._loop)
 
     # ── Menu / Settings ──────────────────────────────────────────────
@@ -312,14 +366,14 @@ class OverlayApp:
         m = tk.Menu(self.root, tearoff=0)
         m.add_command(label='Settings', command=self._open_settings)
         m.add_separator()
-        m.add_command(label='Exit', command=self.root.destroy)
+        m.add_command(label='Exit', command=self._quit)
         m.post(e.x_root, e.y_root)
 
     def _open_settings(self):
         sw = tk.Toplevel(self.root)
         sw.title('Overlay Settings')
         sw.attributes('-topmost', True)
-        sw.geometry('280x400')
+        sw.geometry('280x560')
         sw.configure(bg='#16192e')
         sw.resizable(False, False)
 
@@ -362,6 +416,29 @@ class OverlayApp:
         for mkey, label in [('cpu', 'CPU'), ('ram', 'RAM'), ('gpu', 'GPU'),
                             ('gpu_temp', 'Temperature'), ('vram', 'VRAM')]:
             color_btn(f'  {label}', lambda k=mkey: pick(k, 'colors'))
+
+        heading('Lifetime Stats')
+
+        total_secs = self._lt_base_seconds + (time.time() - self._lt_session_start)
+
+        sf = tk.Frame(f, bg='#1e293b', padx=10, pady=8)
+        sf.pack(fill='x', pady=(0, 4))
+        sf.columnconfigure(1, weight=1)
+
+        rows = [('Time monitored', self._fmt_time(total_secs))]
+        for name, lbl in [('cpu', 'CPU'), ('ram', 'RAM'), ('gpu', 'GPU'),
+                           ('gpu_temp', 'Temp'), ('vram', 'VRAM')]:
+            count = self._lt['counts'].get(name, 0)
+            if count:
+                avg = self._lt['sums'][name] / count
+                val_str = f'{avg:.0f}°C' if name == 'gpu_temp' else f'{avg:.1f}%'
+                rows.append((f'{lbl} avg', val_str))
+
+        for i, (lbl, val) in enumerate(rows):
+            tk.Label(sf, text=lbl, font=('Segoe UI', 9), fg='#64748b',
+                     bg='#1e293b', anchor='w').grid(row=i, column=0, sticky='w', pady=2)
+            tk.Label(sf, text=val, font=('Segoe UI', 9, 'bold'), fg='#e2e8f0',
+                     bg='#1e293b', anchor='e').grid(row=i, column=1, sticky='e', pady=2)
 
     def _set_opacity(self, val):
         v = float(val)
