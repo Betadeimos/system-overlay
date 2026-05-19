@@ -20,11 +20,12 @@
 ## Features
 
 - **Live metrics** — CPU usage, RAM usage, GPU usage, GPU temperature, VRAM usage, updated every 500 ms
+- **Lifetime stats** — tracks all-time average per metric and total monitoring time across sessions, persisted in `lifetime_stats.json`
 - **Smooth transparency** — panel opacity slides from 0 → 100 %; content (text + bars) always stays fully visible
 - **Ghost drag area** — the overlay stays draggable and resizable even at full transparency
 - **Rounded progress bars** — per-metric pastel accent colors, rendered with Pillow for crisp sub-pixel edges
 - **Always on top** — floats above every other window, never steals focus
-- **Right-click settings** — adjust opacity, background color, text color, and per-metric bar colors live
+- **Right-click settings** — adjust opacity, background color, text color, per-metric bar colors, and view lifetime stats
 - **Persistent config** — all preferences saved to `config.json` and restored on next launch
 - **Standalone exe** — single-file build via PyInstaller, no Python required to run
 
@@ -70,7 +71,7 @@ pip install pyinstaller
 pyinstaller --onefile --windowed --icon="Icon\StatsOverlay_Icon.ico" --name="SystemOverlay" system_overlay.py
 ```
 
-The output is `dist\SystemOverlay.exe` — fully self-contained, double-click to launch. Keep `config.json` in the same folder if you want settings to persist between runs.
+The output is `dist\SystemOverlay.exe` — fully self-contained, double-click to launch. Keep `config.json` and `lifetime_stats.json` (auto-created on first run) in the same folder to preserve settings and lifetime stats between runs.
 
 ---
 
@@ -102,6 +103,8 @@ Settings are stored in `config.json` next to the executable (or script). You can
 | `show_gpu` | `true` | Show / hide GPU rows |
 | `colors` | see below | Per-metric bar accent colors |
 
+**Lifetime stats** are stored separately in `lifetime_stats.json` and are never reset by changing `config.json`. Delete `lifetime_stats.json` to start fresh.
+
 **Default bar colors**
 
 | Metric | Color |
@@ -116,12 +119,13 @@ Settings are stored in `config.json` next to the executable (or script). You can
 
 ## Architecture
 
-Everything lives in `system_overlay.py` — ~375 lines, no external UI framework.
+Everything lives in `system_overlay.py` — ~450 lines, no external UI framework.
 
 ```
 GPUManager        singleton — lazy pynvml init, returns None if unavailable
 MetricCollector   collects CPU/RAM/GPU, applies rolling-average smoothing
 OverlayApp        owns two layered Tkinter windows, drives the render loop
+                  and manages lifetime stats persistence
 ```
 
 **Two-window transparency model**
